@@ -1,99 +1,201 @@
-<html><head><base target="_blank"></head><body><div id="container">
-  <iframe id="fr" width="100%" height="100%" frameborder="0" allowfullscreen="" style="display: block;"></iframe>
-  <button class="play-button" type="button" onclick="PlayTo(this)" style="display: none;">CLICK TO PLAY</button>
-  <p id="unblocked-text">G+</p>
-  <button class="fullscreen-button" type="button" onclick="openFullscreen()">FULLSCREEN</button>
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Budget Strike</title>
+<style>
+body {
+    margin: 0;
+    background: #222;
+    overflow: hidden;
+    font-family: Arial, sans-serif;
+}
+
+#ui {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: white;
+    font-size: 20px;
+}
+
+canvas {
+    background: #666;
+    display: block;
+}
+</style>
+</head>
+<body>
+
+<div id="ui">
+    Health: <span id="health">100</span>
+    |
+    Kills: <span id="kills">0</span>
 </div>
 
-<style>
-  .play-button { padding: 20px 40px; background: #000; color: #fff; border: 2px solid #4a148c; border-radius: 10px; font: bold 24px Arial; cursor: pointer; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1001; }
-  .play-button:hover { background: #4a148c; }
-  .fullscreen-button { padding: 10px 15px; background: #000; color: #fff; border: 2px solid #4a148c; border-radius: 5px; font: bold 14px Arial; cursor: pointer; position: fixed; bottom: 20px; right: 20px; z-index: 1002; }
-  .fullscreen-button:hover { background: #4a148c; }
-  body, html { margin: 0; padding: 0; overflow: hidden; height: 100%; }
-</style>
+<canvas id="game"></canvas>
 
 <script>
-  const DB_NAME = 'GameCacheDB';
-  const STORE_NAME = 'GameFiles';
-  const CACHE_DURATION = 90 * 24 * 60 * 60 * 1000; // 3 ay
-  const FILE_URL = 'https://cdn.jsdelivr.net/gh/familiapablo/lopx@main/cs.xml';
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
 
-  function openDB() {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, 1);
-      request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        db.createObjectStore(STORE_NAME, { keyPath: 'url' });
-      };
-      request.onsuccess = (event) => resolve(event.target.result);
-      request.onerror = (event) => reject(event.target.error);
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const player = {
+    x: canvas.width / 2,
+    y: canvas.height / 2,
+    size: 30,
+    speed: 5,
+    health: 100
+};
+
+let kills = 0;
+
+const keys = {};
+
+const bullets = [];
+const enemies = [];
+
+for (let i = 0; i < 8; i++) {
+    spawnEnemy();
+}
+
+function spawnEnemy() {
+    enemies.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size: 25
     });
-  }
+}
 
-  async function saveToCache(url, content) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readwrite');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.put({ url: url, content: content, timestamp: Date.now() });
-      request.onsuccess = () => resolve();
-      request.onerror = () => reject(new Error('Cache error'));
+document.addEventListener("keydown", e => {
+    keys[e.key.toLowerCase()] = true;
+});
+
+document.addEventListener("keyup", e => {
+    keys[e.key.toLowerCase()] = false;
+});
+
+canvas.addEventListener("click", e => {
+    const dx = e.clientX - player.x;
+    const dy = e.clientY - player.y;
+    const len = Math.hypot(dx, dy);
+
+    bullets.push({
+        x: player.x,
+        y: player.y,
+        vx: dx / len * 10,
+        vy: dy / len * 10
     });
-  }
+});
 
-  async function getFileFromCache(url) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_NAME, 'readonly');
-      const store = transaction.objectStore(STORE_NAME);
-      const request = store.get(url);
-      request.onsuccess = async (event) => {
-        const data = event.target.result;
-        if (data && (Date.now() - data.timestamp) < CACHE_DURATION) {
-          resolve(data.content);
-        } else {
-          try {
-            const response = await fetch(url);
-            const text = await response.text();
-            await saveToCache(url, text);
-            resolve(text);
-          } catch (err) {
-            reject(err);
-          }
+function update() {
+
+    if (keys["w"]) player.y -= player.speed;
+    if (keys["s"]) player.y += player.speed;
+    if (keys["a"]) player.x -= player.speed;
+    if (keys["d"]) player.x += player.speed;
+
+    bullets.forEach((b, i) => {
+        b.x += b.vx;
+        b.y += b.vy;
+
+        enemies.forEach((e, j) => {
+            if (
+                b.x > e.x &&
+                b.x < e.x + e.size &&
+                b.y > e.y &&
+                b.y < e.y + e.size
+            ) {
+                bullets.splice(i, 1);
+                enemies.splice(j, 1);
+                kills++;
+                spawnEnemy();
+            }
+        });
+    });
+
+    enemies.forEach(e => {
+        const dx = player.x - e.x;
+        const dy = player.y - e.y;
+        const dist = Math.hypot(dx, dy);
+
+        e.x += dx / dist * 1.2;
+        e.y += dy / dist * 1.2;
+
+        if (dist < 25) {
+            player.health -= 0.2;
         }
-      };
-      request.onerror = () => reject(new Error('DB error'));
     });
-  }
 
-  function PlayTo(button) {
-    const iframe = document.getElementById("fr");
-    getFileFromCache(FILE_URL).then((text) => {
-      iframe.contentDocument.open();
-      iframe.contentDocument.write(text);
-      iframe.contentDocument.close();
-      iframe.style.display = "block";
-      button.style.display = "none";
-    }).catch((err) => {
-      console.error('Error:', err);
-      alert('Oyun yüklenemedi.');
-    });
-  }
+    document.getElementById("health").textContent =
+        Math.max(0, Math.floor(player.health));
 
-  function openFullscreen() {
-    getFileFromCache(FILE_URL).then((text) => {
-      const newWindow = window.open("", "_blank");
-      if (newWindow) {
-        newWindow.document.open();
-        newWindow.document.write(text);
-        newWindow.document.close();
-      } else {
-        alert('Tam ekran açılamadı.');
-      }
-    }).catch((err) => {
-      console.error('Error:', err);
-      alert('Tam ekran yüklenemedi.');
+    document.getElementById("kills").textContent = kills;
+
+    if (player.health <= 0) {
+        alert("Game Over! Kills: " + kills);
+        location.reload();
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Walls
+    ctx.fillStyle = "#444";
+    ctx.fillRect(300, 150, 200, 50);
+    ctx.fillRect(700, 400, 50, 200);
+    ctx.fillRect(1000, 250, 250, 50);
+
+    // Player
+    ctx.fillStyle = "blue";
+    ctx.fillRect(
+        player.x - player.size / 2,
+        player.y - player.size / 2,
+        player.size,
+        player.size
+    );
+
+    // Enemies
+    ctx.fillStyle = "red";
+    enemies.forEach(e => {
+        ctx.fillRect(e.x, e.y, e.size, e.size);
     });
-  }
-</script></body></html>
+
+    // Bullets
+    ctx.fillStyle = "yellow";
+    bullets.forEach(b => {
+        ctx.fillRect(b.x, b.y, 5, 5);
+    });
+
+    // Crosshair
+    ctx.strokeStyle = "white";
+    ctx.beginPath();
+    ctx.moveTo(mouseX - 10, mouseY);
+    ctx.lineTo(mouseX + 10, mouseY);
+    ctx.moveTo(mouseX, mouseY - 10);
+    ctx.lineTo(mouseX, mouseY + 10);
+    ctx.stroke();
+}
+
+let mouseX = 0;
+let mouseY = 0;
+
+document.addEventListener("mousemove", e => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
+});
+
+function gameLoop() {
+    update();
+    draw();
+    requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
+
+</body>
+</html>
